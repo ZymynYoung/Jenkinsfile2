@@ -23,9 +23,7 @@ pipeline {
         stage('Start Apache2') {
             steps {
                 echo "Starting Apache2..."
-                sh '''
-                    sudo service apache2 start
-                '''
+                sh 'sudo service apache2 start'
             }
         }
 
@@ -43,30 +41,36 @@ pipeline {
             steps {
                 echo "Analyzing Apache logs..."
                 sh '''
+                    # Створюємо report без sudo, щоб Jenkins міг архівувати
                     mkdir -p report
+                    ACCESS_LOG=/var/log/apache2/access.log
 
                     echo "<html><body><h1>Apache Log Report</h1>" > report/report.html
 
+                    # 4xx
                     echo "<h2>4xx errors</h2><pre>" >> report/report.html
-                    sudo grep ' 4[0-9][0-9] ' /var/log/apache2/access.log \
-              | tee report/4xx.log \
-              >> report/report.html || echo "No 4xx errors" >> report/report.html
+                    sudo grep ' 4[0-9][0-9] ' $ACCESS_LOG > report/4xx.log 2>/dev/null \
+                      || echo "No 4xx errors" > report/4xx.log
+                    cat report/4xx.log >> report/report.html
                     echo "</pre>" >> report/report.html
 
+                    # 5xx
                     echo "<h2>5xx errors</h2><pre>" >> report/report.html
-                    COUNT_5XX=$(sudo grep ' 5[0-9][0-9] ' /var/log/apache2/access.log | tee report/5xx.log | wc -l)
+                    sudo grep ' 5[0-9][0-9] ' $ACCESS_LOG > report/5xx.log 2>/dev/null \
+                      || echo "No 5xx errors" > report/5xx.log
+                    cat report/5xx.log >> report/report.html
+
+                    COUNT_5XX=$(grep -c ' 5[0-9][0-9] ' report/5xx.log || echo 0)
+
+                    echo "</pre></body></html>" >> report/report.html
 
                     if [ "$COUNT_5XX" -gt 0 ]; then
                         echo "5xx errors found: $COUNT_5XX"
-                        echo "5xx errors found: $COUNT_5XX" >> report/report.html
-                        echo "</pre></body></html>" >> report/report.html
                         exit 1
                     else
                         echo "No 5xx errors found"
-                        echo "No 5xx errors found" >> report/report.html
-                        echo "</pre></body></html>" >> report/report.html
                     fi
-                 '''
+                '''
             }
         }
     }
@@ -74,7 +78,7 @@ pipeline {
     post {
         always {
             echo "Archiving logs and report..."
-            archiveArtifacts artifacts: 'report/**/*', fingerprint: true
+            archiveArtifacts artifacts: 'report/*', allowEmptyArchive: true, fingerprint: true
         }
 
         failure {
